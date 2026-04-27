@@ -1,56 +1,119 @@
-x-airflow-common: &airflow-common
-  image: apache/airflow:2.6.3
-  environment:
-    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:1234@host.docker.internal:5432/commerce
-    AIRFLOW__CORE__EXECUTOR: LocalExecutor
-  volumes:
-    - ./dags:/opt/airflow/dags
-    - ./logs:/opt/airflow/logs
-    - ./plugins:/opt/airflow/plugins
-    - ./data:/opt/airflow/data
-    - ./data/raw:/opt/airflow/data/raw
-    - ./data/interim:/opt/airflow/data/interim
-    - ./data/logs:/opt/airflow/data/logs
-
 services:
+  postgres:
+    image: postgres:16
+    container_name: etl_postgres
+    environment:
+      POSTGRES_USER: etl_user
+      POSTGRES_PASSWORD: etl_password
+      POSTGRES_DB: etl_warehouse
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./etl/sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U etl_user -d etl_warehouse"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   airflow-init:
-    <<: *airflow-common
-    container_name: airflow-init
-    entrypoint: /bin/bash
-    command: >
-      -c "
-      airflow db migrate &&
-      airflow users create \
-        --username admin \
-        --password admin \
-        --firstname admin \
-        --lastname admin \
-        --role Admin \
-        --email admin@example.com
-      "
-    restart: "no"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-  airflow-webserver:
-    <<: *airflow-common
-    container_name: airflow-webserver
+    build:
+      context: ./etl
+      dockerfile: Dockerfile
+    container_name: airflow_init
     depends_on:
-      - airflow-init
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://etl_user:etl_password@postgres:5432/etl_warehouse
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+      PYTHONPATH: /opt/airflow
+    command: >
+          bash -c "airflow db migrate &&
+          airflow users create --username admin --password admin --firstname Airflow --lastname Admin --role Admin --email admin@example.com"
+    volumes:
+          - ./etl/dags:/opt/airflow/dags:ro
+          - ./etl:/opt/airflow/etl:ro
+          - ./data:/opt/airflow/data
+          - ./etl/sql:/opt/airflow/sql:ro
+          - ./etl/sql/post_load:/opt/airflow/sql/post_load:ro
+          - ./logs:/opt/airflow/logs
+    restart: "no"
+
+  airflow-webserver:
+    build:
+      context: ./etl
+    container_name: airflow_webserver
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://etl_user:etl_password@postgres:5432/etl_warehouse
+      AIRFLOW__WEBSERVER__SECRET_KEY: "46e46596f08c21a0c54a21e6217a73be"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      PYTHONPATH: /opt/airflow
+    command: webserver
     ports:
       - "8080:8080"
-    command: webserver
-    restart: always
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./etl/dags:/opt/airflow/dags:ro
+      - ./etl/sql:/opt/airflow/sql:ro
+      - ./etl:/opt/airflow/etl:ro
+      - ./data:/opt/airflow/data
+      - ./etl/tests:/opt/airflow/tests:ro
+      - ./logs:/opt/airflow/logs
 
   airflow-scheduler:
-    <<: *airflow-common
-    container_name: airflow-scheduler
+    build:
+      context: ./etl
+      dockerfile: Dockerfile
+    container_name: airflow_scheduler
     depends_on:
-      - airflow-init
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://etl_user:etl_password@postgres:5432/etl_warehouse
+      AIRFLOW__WEBSERVER__SECRET_KEY: "46e46596f08c21a0c54a21e6217a73be"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      PYTHONPATH: /opt/airflow
     command: scheduler
-    restart: always
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./etl/dags:/opt/airflow/dags:ro
+      - ./etl:/opt/airflow/etl:ro
+      - ./etl/sql:/opt/airflow/sql:ro
+      - ./data:/opt/airflow/data
+      - ./etl/tests:/opt/airflow/tests:ro
+      - ./logs:/opt/airflow/logs
+
+  backend:
+    build:
+      context: ./backend
+    container_name: backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://etl_user:etl_password@postgres:5432/etl_warehouse
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: frontend
+    ports:
+      - "30030:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

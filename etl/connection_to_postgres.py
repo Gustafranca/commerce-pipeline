@@ -1,11 +1,11 @@
 import os
 import psycopg2
 
-HOST = "localhost"
-PORT = 5432
-DBNAME = "commerce"
-USER = "postgres"
-PASSWORD = "1234"
+HOST = "postgres"
+PORT = "5432"
+DBNAME = "etl_warehouse"
+USER = "etl_user"
+PASSWORD = "etl_password"
 DATA_DIR = os.path.expanduser("~/repositorios/pipeline-commerce/data/interim/")
 
 def table_exists(cur, table):
@@ -19,6 +19,7 @@ def table_exists(cur, table):
 
 def main():
     conn = psycopg2.connect(dbname=DBNAME, user=USER, password=PASSWORD, host=HOST, port=PORT)
+    print(conn)
     try:
         with conn:
             with conn.cursor() as cur:

@@ -111,17 +111,17 @@ def validate_and_convert(df, model):
 
 # Load CSV files into DataFrames
 folder_raw = '/home/gflameida2/repositorios/pipeline-commerce/data/interim/'
-
-categorias_produto_df = pd.read_csv(folder_raw + 'categorias_produto.csv', sep=';')
-clientes_df = pd.read_csv(folder_raw + 'clientes.csv', sep=';')
-entregas_df = pd.read_csv(folder_raw + 'entregas.csv', sep=';')
-estoque_movimentacoes_df = pd.read_csv(folder_raw + 'estoque_movimentacoes.csv', sep=';')
-itens_pedido_df = pd.read_csv(folder_raw + 'itens_pedido.csv', sep=';')
-lojas_df = pd.read_csv(folder_raw + 'lojas.csv', sep=';')
-pagamentos_df = pd.read_csv(folder_raw + 'pagamentos.csv', sep=';')
-pedidos_df = pd.read_csv(folder_raw + 'pedidos.csv', sep=';')
-produtos_df = pd.read_csv(folder_raw + 'produtos.csv', sep=';')
-vendedores_df = pd.read_csv(folder_raw + 'vendedores.csv', sep=';')
+folder_interim = '/home/gflameida2/repositorios/pipeline-commerce/data/interim/'
+categorias_produto_df = pd.read_csv(folder_interim + 'categorias_produto.csv', sep=';')
+clientes_df = pd.read_csv(folder_interim + 'clientes.csv', sep=';')
+entregas_df = pd.read_csv(folder_interim + 'entregas.csv', sep=';')
+estoque_movimentacoes_df = pd.read_csv(folder_interim + 'estoque_movimentacoes.csv', sep=';')
+itens_pedido_df = pd.read_csv(folder_interim + 'itens_pedido.csv', sep=';')
+lojas_df = pd.read_csv(folder_interim + 'lojas.csv', sep=';')
+pagamentos_df = pd.read_csv(folder_interim + 'pagamentos.csv', sep=';')
+pedidos_df = pd.read_csv(folder_interim + 'pedidos.csv', sep=';')
+produtos_df = pd.read_csv(folder_interim + 'produtos.csv', sep=';')
+vendedores_df = pd.read_csv(folder_interim + 'vendedores.csv', sep=';')
 
 # Validate and convert DataFrames to Pydantic model instances
 categorias_produto_instances = validate_and_convert(categorias_produto_df, CategoriaProduto)
