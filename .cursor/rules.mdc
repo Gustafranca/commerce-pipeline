@@ -15,7 +15,8 @@ description: Pipeline Commerce — backend, ETL, static frontends, and ops conve
 
 - Dashboard routes use **`verify_dashboard_user`** (env `DASHBOARD_USER` / `DASHBOARD_PASSWORD`). Destructive UI flows should **re-send Basic auth with a freshly typed password** on that request, not only the cached `sessionStorage` header.
 - **Never** build SQL table or column names from unchecked user strings. Use fixed whitelists only (e.g. `BROWSE_TABLES`, `MODEL_BY_DATASET`, `TABLE_PRIMARY_KEY` in `staged_promote.py`).
-- **`clientes.tipo_cliente`** is **`VARCHAR(2)`** in the schema. Allowed values are **`PF`** and **`PJ`** only; validation and user-facing errors must say so (`staged_promote.py` + ingest for `clientes`).
+- **`clientes.tipo_cliente`** is **`VARCHAR(2)`** in the schema. Allowed values are **`PF`** and **`PJ`** only; validation and user-facing errors must say so (`staged_promote.py` whenever a `clientes` payload is validated).
+- **Ingest** (`POST /ingest/{entity_name}`) runs **`validate_payload`** for every supported `MODEL_BY_DATASET` entity (same rules as promote); unknown `entity_name` returns **422** with `validation_errors`.
 
 ## API and promote behavior
 

@@ -437,13 +437,12 @@ def promote_staged_record_endpoint(
 async def ingest_data(entity_name: str, payload: Dict[str, Any]):
     run_id = f"manual_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:6]}"
     key = entity_name.strip()
-    if key == "clientes":
-        _, errs = validate_payload(key, payload)
-        if errs:
-            raise HTTPException(
-                status_code=422,
-                detail={"validation_errors": errs},
-            )
+    _, errs = validate_payload(key, payload)
+    if errs:
+        raise HTTPException(
+            status_code=422,
+            detail={"validation_errors": errs},
+        )
 
     try:
         with engine.connect() as conn:
@@ -453,14 +452,14 @@ async def ingest_data(entity_name: str, payload: Dict[str, Any]):
                 VALUES (:entity, :run_id, :staged_at, :payload)
             """)
             conn.execute(query, {
-                "entity": entity_name,
+                "entity": key,
                 "run_id": run_id,
                 "staged_at": datetime.now(),
                 "payload": json.dumps(payload)
             })
             conn.commit()
-        
-        return {"status": "success", "run_id": run_id, "entity": entity_name}
+
+        return {"status": "success", "run_id": run_id, "entity": key}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

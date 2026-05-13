@@ -1,6 +1,6 @@
 data/
 env/
 logs/
-
+.venv/
 # Cursor debug session logs (may embed docker compose output from other machines)
 .cursor/debug*.log
