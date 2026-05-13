@@ -7,10 +7,13 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py .
+# Shared Pydantic models with ETL (validate task)
+COPY etl/etl/commerce_models.py ./commerce_models.py
+COPY backend/staged_promote.py ./staged_promote.py
+COPY backend/main.py ./main.py
 
 EXPOSE 8000
 

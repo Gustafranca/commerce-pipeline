@@ -10,3 +10,7 @@ ENV AIRFLOW_CONSTRAINTS_URL="https://raw.githubusercontent.com/apache/airflow/co
 
 COPY requirements.txt /requirements.txt
 RUN pip install --no-cache-dir --constraint "${AIRFLOW_CONSTRAINTS_URL}" -r /requirements.txt
+
+COPY ./dags /opt/airflow/dags
+COPY ./etl /opt/airflow/etl
+COPY ./sql /opt/airflow/sql

@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Table browser — Pipeline Commerce</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="max-w-[95vw] xl:max-w-7xl mx-auto py-10 px-4" x-data="browseApp()" x-init="init()"
+        @keydown.escape.window="handleBrowseEscape()">
+        <header class="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">Table browser</h1>
+                <p class="text-gray-600 text-sm">Browse warehouse tables (newest id first). Click a row to select it, then choose <strong>Delete this row</strong> and confirm with your password.</p>
+            </div>
+            <nav class="flex flex-wrap gap-3 text-sm justify-end">
+                <a href="index.html" class="text-blue-600 hover:text-blue-800 font-medium">Ingestion</a>
+                <a href="data.html" class="text-blue-600 hover:text-blue-800 font-medium">Staged records</a>
+                <a href="explorer.html" class="text-blue-600 hover:text-blue-800 font-medium">Data explorer</a>
+            </nav>
+        </header>
+
+        <section x-show="!authenticated" x-cloak class="bg-white rounded-lg shadow-md p-8 max-w-md mx-auto">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4">Sign in</h2>
+            <p class="text-sm text-gray-600 mb-6">Same dashboard credentials as other data pages.</p>
+            <form @submit.prevent="login" class="space-y-4">
+                <div>
+                    <label for="user" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                    <input id="user" type="text" autocomplete="username" x-model="username"
+                        class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="pass" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input id="pass" type="password" autocomplete="current-password" x-model="password"
+                        class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <p x-show="loginError" x-text="loginError" class="text-sm text-red-600"></p>
+                <button type="submit" :disabled="loading"
+                    class="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 font-medium">
+                    <span x-show="!loading">Continue</span>
+                    <span x-show="loading">Checking…</span>
+                </button>
+            </form>
+        </section>
+
+        <div x-show="authenticated" x-cloak class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3 bg-white rounded-lg shadow px-4 py-3">
+                <p class="text-sm text-gray-600">
+                    Signed in as <span class="font-medium text-gray-800" x-text="username"></span>
+                </p>
+                <button type="button" @click="logout"
+                    class="text-sm px-3 py-1.5 rounded border border-red-200 text-red-700 hover:bg-red-50">
+                    Sign out
+                </button>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-4 border border-gray-200 flex flex-wrap gap-4 items-end">
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Table</label>
+                    <select x-model="entity" @change="offset = 0; load()"
+                        class="border border-gray-300 rounded-md p-2 text-sm min-w-[12rem]">
+                        <template x-for="e in entities" :key="e">
+                            <option :value="e" x-text="e"></option>
+                        </template>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Page size</label>
+                    <input type="number" min="1" max="500" x-model.number="limit"
+                        class="w-24 border border-gray-300 rounded-md p-2 text-sm">
+                </div>
+                <button type="button" @click="offset = 0; load()" :disabled="tableLoading"
+                    class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
+                    Load
+                </button>
+            </div>
+
+            <p x-show="tableError" x-text="tableError" class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3"></p>
+            <p x-show="successMsg" x-text="successMsg" class="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg p-3"></p>
+
+            <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600 bg-white rounded-lg border border-gray-200 px-4 py-2">
+                <span>Offset <span class="font-mono" x-text="offset"></span> · showing <span x-text="count"></span> row(s)</span>
+                <div class="flex gap-2">
+                    <button type="button" @click="prevPage()" :disabled="tableLoading || offset === 0"
+                        class="px-3 py-1.5 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-40">Previous</button>
+                    <button type="button" @click="nextPage()" :disabled="tableLoading || count < limit"
+                        class="px-3 py-1.5 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-40">Next</button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm">
+                        <thead class="bg-gray-50 text-left text-gray-600 uppercase text-xs tracking-wide" x-show="columns.length">
+                            <tr>
+                                <template x-for="col in columns" :key="col">
+                                    <th class="px-3 py-2 font-semibold whitespace-nowrap" x-text="col"></th>
+                                </template>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-if="!tableLoading && columns.length === 0 && !tableError">
+                                <tr><td class="px-4 py-8 text-center text-gray-500" colspan="1">Pick a table and click Load.</td></tr>
+                            </template>
+                            <template x-if="!tableLoading && columns.length && rows.length === 0">
+                                <tr><td class="px-4 py-8 text-center text-gray-500" :colspan="columns.length">No rows in this page.</td></tr>
+                            </template>
+                            <template x-if="tableLoading">
+                                <tr><td class="px-4 py-8 text-center text-gray-500" :colspan="Math.max(columns.length, 1)">Loading…</td></tr>
+                            </template>
+                            <template x-for="(row, ri) in rows" :key="entity + '-' + String(row[pkColumn()] ?? ri)">
+                                <tr
+                                    @click="toggleRowSelect(row)"
+                                    :class="isRowSelected(row) ? 'bg-blue-50 ring-1 ring-inset ring-blue-200/80' : 'hover:bg-gray-50'"
+                                    class="border-t border-gray-100 cursor-pointer transition-colors">
+                                    <template x-for="col in columns" :key="col">
+                                        <td class="px-3 py-2 text-gray-800 align-top max-w-xs truncate" :title="String(row[col] ?? '')" x-text="row[col] == null ? '—' : String(row[col])"></td>
+                                    </template>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div x-show="selectedRow" x-cloak
+                class="bg-white border border-blue-200 rounded-lg shadow-sm px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <p class="text-sm text-gray-700">
+                    <span class="font-semibold text-gray-900">Selected row</span>
+                    <span class="text-gray-500">·</span>
+                    <span class="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded" x-text="entity"></span>
+                    <span class="text-gray-500">·</span>
+                    <span class="font-medium" x-text="pkColumn()"></span>
+                    <span class="font-mono font-semibold text-gray-900" x-text="selectedRow ? String(selectedRow[pkColumn()]) : ''"></span>
+                </p>
+                <div class="flex flex-wrap gap-2 shrink-0">
+                    <button type="button" @click.stop="clearRowSelection()"
+                        class="text-sm px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+                        Clear selection
+                    </button>
+                    <button type="button" @click.stop="openDeleteModal(selectedRow)" :disabled="deleteSaving"
+                        class="text-sm px-3 py-2 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 font-medium">
+                        Delete this row…
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete warehouse row (password confirmation) -->
+        <div x-show="deleteModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true"
+            aria-labelledby="browse-delete-title">
+            <div class="absolute inset-0 bg-black/40" @click="closeDeleteModal()"></div>
+            <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full border border-gray-200" @click.stop>
+                <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <h2 id="browse-delete-title" class="text-lg font-semibold text-gray-800">Delete row</h2>
+                    <button type="button" @click="closeDeleteModal()" class="text-gray-500 hover:text-gray-800 p-1 rounded" aria-label="Close">✕</button>
+                </div>
+                <div class="p-4 space-y-4">
+                    <p class="text-sm text-gray-600">
+                        Delete from <strong x-text="entity"></strong> where <strong x-text="pkColumn()"></strong> =
+                        <strong class="font-mono" x-text="deleteTargetPk"></strong>. This cannot be undone.
+                    </p>
+                    <p class="text-sm text-gray-600">
+                        Enter the dashboard password for <strong x-text="username"></strong> to confirm.
+                    </p>
+                    <div>
+                        <label for="browse-delete-pass" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                        <input id="browse-delete-pass" type="password" autocomplete="current-password" x-model="deleteConfirmPassword"
+                            class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500">
+                    </div>
+                    <p x-show="deleteModalError" x-text="deleteModalError" class="text-sm text-red-600"></p>
+                </div>
+                <div class="px-4 py-3 border-t border-gray-200 flex justify-end gap-2 bg-gray-50 rounded-b-lg">
+                    <button type="button" @click="closeDeleteModal()" :disabled="deleteSaving"
+                        class="text-sm px-3 py-2 rounded border border-gray-300 hover:bg-white disabled:opacity-50">Cancel</button>
+                    <button type="button" @click="confirmDeleteRow()" :disabled="deleteSaving"
+                        class="text-sm px-3 py-2 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">
+                        <span x-show="!deleteSaving">Delete</span>
+                        <span x-show="deleteSaving">Deleting…</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BROWSE_ENTITIES = [
+            'categorias_produto', 'clientes', 'lojas', 'produtos', 'vendedores',
+            'pedidos', 'entregas', 'itens_pedido', 'estoque_movimentacoes', 'pagamentos'
+        ];
+
+        /** Primary key column per table (must match backend BROWSE_TABLES). */
+        const BROWSE_PK = {
+            categorias_produto: 'categoria_id',
+            clientes: 'cliente_id',
+            lojas: 'loja_id',
+            produtos: 'produto_id',
+            vendedores: 'vendedor_id',
+            pedidos: 'pedido_id',
+            entregas: 'entrega_id',
+            itens_pedido: 'item_pedido_id',
+            estoque_movimentacoes: 'movimento_id',
+            pagamentos: 'pagamento_id'
+        };
+
+        function basicAuthHeader(user, pass) {
+            const raw = user + ':' + pass;
+            const bytes = new TextEncoder().encode(raw);
+            let bin = '';
+            bytes.forEach(b => { bin += String.fromCharCode(b); });
+            return 'Basic ' + btoa(bin);
+        }
+
+        function browseApp() {
+            return {
+                entities: BROWSE_ENTITIES,
+                entity: BROWSE_ENTITIES[0],
+                limit: 100,
+                offset: 0,
+                username: '',
+                password: '',
+                authHeader: '',
+                authenticated: false,
+                loading: false,
+                loginError: '',
+                tableLoading: false,
+                tableError: '',
+                rows: [],
+                columns: [],
+                count: 0,
+                successMsg: '',
+                selectedRow: null,
+                deleteModalOpen: false,
+                deleteTargetPk: null,
+                deleteConfirmPassword: '',
+                deleteModalError: '',
+                deleteSaving: false,
+                init() {
+                    try {
+                        const raw = sessionStorage.getItem('dashboard_basic');
+                        if (raw) {
+                            this.authHeader = raw;
+                            this.authenticated = true;
+                            this.username = sessionStorage.getItem('dashboard_user') || '';
+                            this.load();
+                        }
+                    } catch (_) {}
+                },
+                async login() {
+                    this.loginError = '';
+                    this.loading = true;
+                    const hdr = basicAuthHeader(this.username, this.password);
+                    try {
+                        const res = await fetch('/api/records?limit=1', { headers: { 'Authorization': hdr } });
+                        if (res.status === 401) {
+                            this.loginError = 'Invalid username or password.';
+                            return;
+                        }
+                        if (res.status === 503) {
+                            const j = await res.json().catch(() => ({}));
+                            this.loginError = j.detail || 'Dashboard is not configured.';
+                            return;
+                        }
+                        if (!res.ok) {
+                            const j = await res.json().catch(() => ({}));
+                            this.loginError = j.detail || 'Sign-in check failed.';
+                            return;
+                        }
+                        this.authHeader = hdr;
+                        this.authenticated = true;
+                        this.password = '';
+                        try {
+                            sessionStorage.setItem('dashboard_basic', hdr);
+                            sessionStorage.setItem('dashboard_user', this.username);
+                        } catch (_) {}
+                        this.load();
+                    } catch (e) {
+                        this.loginError = 'Network error.';
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                logout() {
+                    this.closeDeleteModal();
+                    this.clearRowSelection();
+                    this.authenticated = false;
+                    this.authHeader = '';
+                    this.rows = [];
+                    this.columns = [];
+                    this.count = 0;
+                    this.tableError = '';
+                    this.successMsg = '';
+                    try {
+                        sessionStorage.removeItem('dashboard_basic');
+                        sessionStorage.removeItem('dashboard_user');
+                    } catch (_) {}
+                },
+                async load() {
+                    if (!this.authHeader) return;
+                    this.tableError = '';
+                    this.successMsg = '';
+                    this.selectedRow = null;
+                    this.tableLoading = true;
+                    const lim = Math.min(500, Math.max(1, parseInt(this.limit, 10) || 100));
+                    this.limit = lim;
+                    const off = Math.min(50000, Math.max(0, parseInt(this.offset, 10) || 0));
+                    this.offset = off;
+                    const path = '/api/browse/' + encodeURIComponent(this.entity)
+                        + '?limit=' + lim + '&offset=' + off;
+                    try {
+                        const res = await fetch(path, { headers: { 'Authorization': this.authHeader } });
+                        if (res.status === 401) {
+                            this.logout();
+                            this.loginError = 'Session expired. Please sign in again.';
+                            return;
+                        }
+                        if (res.status === 404) {
+                            this.tableError = 'Unknown table.';
+                            this.rows = [];
+                            this.columns = [];
+                            this.count = 0;
+                            return;
+                        }
+                        if (!res.ok) {
+                            const j = await res.json().catch(() => ({}));
+                            this.tableError = j.detail || 'Request failed.';
+                            this.rows = [];
+                            this.columns = [];
+                            this.count = 0;
+                            return;
+                        }
+                        const data = await res.json();
+                        this.rows = data.rows || [];
+                        this.count = data.count != null ? data.count : this.rows.length;
+                        this.columns = this.rows.length ? Object.keys(this.rows[0]) : [];
+                    } catch (e) {
+                        this.tableError = 'Network error.';
+                        this.rows = [];
+                        this.columns = [];
+                        this.count = 0;
+                    } finally {
+                        this.tableLoading = false;
+                    }
+                },
+                prevPage() {
+                    const lim = Math.min(500, Math.max(1, parseInt(this.limit, 10) || 100));
+                    this.limit = lim;
+                    this.offset = Math.max(0, this.offset - lim);
+                    this.load();
+                },
+                nextPage() {
+                    const lim = Math.min(500, Math.max(1, parseInt(this.limit, 10) || 100));
+                    this.limit = lim;
+                    this.offset = Math.min(50000, this.offset + lim);
+                    this.load();
+                },
+                pkColumn() {
+                    return BROWSE_PK[this.entity] || 'id';
+                },
+                toggleRowSelect(row) {
+                    const pk = this.pkColumn();
+                    const id = row[pk];
+                    if (this.selectedRow && this.selectedRow[pk] === id) {
+                        this.selectedRow = null;
+                    } else {
+                        this.selectedRow = row;
+                    }
+                },
+                isRowSelected(row) {
+                    if (!this.selectedRow) return false;
+                    const pk = this.pkColumn();
+                    return this.selectedRow[pk] === row[pk];
+                },
+                clearRowSelection() {
+                    this.selectedRow = null;
+                },
+                handleBrowseEscape() {
+                    if (this.deleteModalOpen) {
+                        this.closeDeleteModal();
+                        return;
+                    }
+                    if (this.selectedRow) {
+                        this.clearRowSelection();
+                    }
+                },
+                openDeleteModal(row) {
+                    const pk = this.pkColumn();
+                    const v = row[pk];
+                    if (v === undefined || v === null) {
+                        this.tableError = 'Cannot delete: missing primary key on this row.';
+                        return;
+                    }
+                    this.deleteModalError = '';
+                    this.successMsg = '';
+                    this.deleteTargetPk = v;
+                    this.deleteConfirmPassword = '';
+                    this.deleteModalOpen = true;
+                },
+                closeDeleteModal() {
+                    this.deleteModalOpen = false;
+                    this.deleteTargetPk = null;
+                    this.deleteConfirmPassword = '';
+                    this.deleteModalError = '';
+                    this.deleteSaving = false;
+                },
+                async confirmDeleteRow() {
+                    this.deleteModalError = '';
+                    if (!this.deleteConfirmPassword) {
+                        this.deleteModalError = 'Enter your password to confirm.';
+                        return;
+                    }
+                    const pk = this.pkColumn();
+                    const idNum = parseInt(String(this.deleteTargetPk), 10);
+                    if (Number.isNaN(idNum)) {
+                        this.deleteModalError = 'Primary key must be a number for this delete API.';
+                        return;
+                    }
+                    const confirmHdr = basicAuthHeader(this.username, this.deleteConfirmPassword);
+                    this.deleteSaving = true;
+                    try {
+                        const path = '/api/browse/' + encodeURIComponent(this.entity) + '/' + encodeURIComponent(idNum);
+                        const res = await fetch(path, {
+                            method: 'DELETE',
+                            headers: { 'Authorization': confirmHdr }
+                        });
+                        let body = {};
+                        try { body = await res.json(); } catch (_) {}
+                        if (res.ok) {
+                            this.deleteConfirmPassword = '';
+                            this.successMsg = 'Row deleted from “' + this.entity + '”.';
+                            this.closeDeleteModal();
+                            this.clearRowSelection();
+                            await this.load();
+                            return;
+                        }
+                        if (res.status === 401) {
+                            this.deleteModalError = 'Wrong password.';
+                            return;
+                        }
+                        if (res.status === 409) {
+                            this.deleteModalError = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+                            return;
+                        }
+                        if (typeof body.detail === 'string') {
+                            this.deleteModalError = body.detail;
+                        } else if (body.detail) {
+                            this.deleteModalError = JSON.stringify(body.detail);
+                        } else {
+                            this.deleteModalError = 'HTTP ' + res.status;
+                        }
+                    } catch (e) {
+                        this.deleteModalError = 'Network error while deleting.';
+                    } finally {
+                        this.deleteSaving = false;
+                    }
+                }
+            };
+        }
+    </script>
+</body>
+</html>

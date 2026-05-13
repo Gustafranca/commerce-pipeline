@@ -1,0 +1,29 @@
+# Argo CD 2.6+ multi-source: Helm chart from apache-airflow repo + values from Git.
+# Register no extra repos if using public URLs; Argo resolves https://airflow.apache.org as Helm repo.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: airflow-staging
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://airflow.apache.org
+      chart: airflow
+      targetRevision: 1.16.0
+      helm:
+        releaseName: airflow
+        valueFiles:
+          - $values/k8s/helm/airflow-values-staging.yaml
+    - repoURL: https://github.com/REPLACE_ORG/pipeline-commerce.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pipeline-commerce
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

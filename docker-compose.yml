@@ -1,3 +1,12 @@
+name: pipeline-commerce
+
+x-airflow-common-env: &airflow-common-env
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://etl_user:etl_password@postgres:5432/etl_warehouse
+  AIRFLOW__WEBSERVER__SECRET_KEY: "46e46596f08c21a0c54a21e6217a73be"
+  AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+  PYTHONPATH: /opt/airflow
+
 services:
   postgres:
     image: postgres:16
@@ -26,11 +35,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://etl_user:etl_password@postgres:5432/etl_warehouse
-      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      <<: *airflow-common-env
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
-      PYTHONPATH: /opt/airflow
     command: >
           bash -c "airflow db migrate &&
           airflow users create --username admin --password admin --firstname Airflow --lastname Admin --role Admin --email admin@example.com"
@@ -40,7 +46,7 @@ services:
           - ./data:/opt/airflow/data
           - ./etl/sql:/opt/airflow/sql:ro
           - ./etl/sql/post_load:/opt/airflow/sql/post_load:ro
-          - ./logs:/opt/airflow/logs
+          - airflow_logs:/opt/airflow/logs
     restart: "no"
 
   airflow-webserver:
@@ -53,11 +59,7 @@ services:
       airflow-init:
         condition: service_completed_successfully
     environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://etl_user:etl_password@postgres:5432/etl_warehouse
-      AIRFLOW__WEBSERVER__SECRET_KEY: "46e46596f08c21a0c54a21e6217a73be"
-      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      PYTHONPATH: /opt/airflow
+      <<: *airflow-common-env
     command: webserver
     ports:
       - "8080:8080"
@@ -67,7 +69,7 @@ services:
       - ./etl:/opt/airflow/etl:ro
       - ./data:/opt/airflow/data
       - ./etl/tests:/opt/airflow/tests:ro
-      - ./logs:/opt/airflow/logs
+      - airflow_logs:/opt/airflow/logs
 
   airflow-scheduler:
     build:
@@ -80,11 +82,7 @@ services:
       airflow-init:
         condition: service_completed_successfully
     environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://etl_user:etl_password@postgres:5432/etl_warehouse
-      AIRFLOW__WEBSERVER__SECRET_KEY: "46e46596f08c21a0c54a21e6217a73be"
-      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      PYTHONPATH: /opt/airflow
+      <<: *airflow-common-env
     command: scheduler
     volumes:
       - ./etl/dags:/opt/airflow/dags:ro
@@ -92,11 +90,12 @@ services:
       - ./etl/sql:/opt/airflow/sql:ro
       - ./data:/opt/airflow/data
       - ./etl/tests:/opt/airflow/tests:ro
-      - ./logs:/opt/airflow/logs
+      - airflow_logs:/opt/airflow/logs
 
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: backend
     depends_on:
       postgres:
@@ -105,6 +104,8 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://etl_user:etl_password@postgres:5432/etl_warehouse
+      DASHBOARD_USER: db_access
+      DASHBOARD_PASSWORD: db_password
 
   frontend:
     build:
@@ -117,3 +118,4 @@ services:
 
 volumes:
   postgres_data:
+  airflow_logs:

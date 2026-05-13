@@ -1,0 +1,49 @@
+# Apache Airflow Helm chart values (Airflow 2.10.x chart).
+# Docs: https://airflow.apache.org/docs/helm-chart/stable/index.html
+#
+# Prerequisites: namespace pipeline-commerce, Postgres Service postgres-service,
+# and secrets from k8s/base/etl/airflow-secrets.yaml applied first.
+
+defaultAirflowRepository: gfalmeida2/pipeline-commerce-etl
+defaultAirflowTag: latest
+
+executor: LocalExecutor
+
+postgresql:
+  enabled: false
+
+redis:
+  enabled: false
+
+data:
+  metadataSecretName: airflow-metadata-connection
+
+fernetKeySecretName: airflow-fernet-key
+webserverSecretKeySecretName: airflow-webserver-secret-key
+
+ingress:
+  web:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - name: airflow.pipeline-commerce.local
+
+webserver:
+  service:
+    type: ClusterIP
+    ports:
+      - name: airflow-ui
+        port: 8080
+
+# DAGs: PVC is simple for dev; for GitOps prefer dags.gitSync (see chart docs).
+dags:
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClassName: standard
+    accessMode: ReadWriteOnce
+
+airflow:
+  config:
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"

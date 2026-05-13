@@ -4,7 +4,7 @@ from typing import List
 from airflow.decorators import task
 from etl.etl.config import (
     PG_DBNAME, PG_USER, PG_PASSWORD, PG_HOST, PG_PORT,
-    SQL_INIT_DB, SQL_CONSTRAINTS
+    SQL_INIT_DB, SQL_STAGING_TABLES, SQL_CONSTRAINTS
 )
 
 @task
@@ -25,8 +25,13 @@ def create_tables():
     try:
         with conn:
             with conn.cursor() as cur:
+                # Initialize core tables
                 with open(SQL_INIT_DB, "r", encoding="utf-8") as f:
                     cur.execute(f.read())
+                # Initialize staging tables
+                if os.path.exists(SQL_STAGING_TABLES):
+                    with open(SQL_STAGING_TABLES, "r", encoding="utf-8") as f:
+                        cur.execute(f.read())
     finally:
         conn.close()
         

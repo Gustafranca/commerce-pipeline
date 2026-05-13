@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pipeline-commerce
+
+resources:
+  - namespace.yaml
+  - postgres/0-postgres-pvc.yaml
+  - postgres/config.yaml
+  - postgres/secret.yaml
+  - postgres/init-sql-configmap.yaml
+  - postgres/postgres.yaml
+  - backend/secret.yaml
+  - backend/backend.yaml
+  - frontend/frontend.yaml
+  - ingress/ingress.yaml
+  - etl/airflow-secrets.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: pipeline-commerce
+    includeSelectors: false

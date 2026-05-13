@@ -1,0 +1,71 @@
+name: build-and-push-images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: docker.io
+  BACKEND_IMAGE: gfalmeida2/pipeline-commerce-backend
+  FRONTEND_IMAGE: gfalmeida2/pipeline-commerce-frontend
+  ETL_IMAGE: gfalmeida2/pipeline-commerce-etl
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker metadata (tags)
+        id: meta
+        run: |
+          SHA="${GITHUB_SHA::12}"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Tags: $SHA and latest"
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.sha }}
+            ${{ env.BACKEND_IMAGE }}:latest
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.sha }}
+            ${{ env.FRONTEND_IMAGE }}:latest
+
+      - name: Build and push ETL (Airflow) image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./etl
+          push: true
+          tags: |
+            ${{ env.ETL_IMAGE }}:${{ steps.meta.outputs.sha }}
+            ${{ env.ETL_IMAGE }}:latest
+
+      - name: Pin staging overlay (manual next step)
+        run: |
+          echo "Images pushed with tag ${{ steps.meta.outputs.sha }} and latest."
+          echo "To pin GitOps / Kustomize staging to this SHA, run locally and commit:"
+          echo "  ./scripts/set-image-tags.sh ${{ steps.meta.outputs.sha }}"

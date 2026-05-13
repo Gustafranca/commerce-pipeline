@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-env
+  namespace: pipeline-commerce
+data:
+  POSTGRES_DB: etl_warehouse

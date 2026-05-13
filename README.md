@@ -62,6 +62,17 @@ This project implements a complete ETL (Extract, Transform, Load) workflow for a
 ### Prerequisites
 - Docker and Docker Compose installed.
 
+### Local development (recommended)
+
+Use Docker Compose for UI/API/database iteration. See [docs/local-dev.md](docs/local-dev.md).
+
+### Kubernetes / GitOps
+
+- Kustomize layouts: [k8s/README.md](k8s/README.md)
+- Cluster access notes (Minikube, tunnels, DNS): [docs/staging-cluster-access.md](docs/staging-cluster-access.md)
+- Argo CD examples: [gitops/argocd/README.md](gitops/argocd/README.md)
+- CI image build: [.github/workflows/build-push.yaml](.github/workflows/build-push.yaml) (requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets)
+
 ### Setup and Execution
 1.  **Clone the repository:**
     ```bash
@@ -81,14 +92,17 @@ This project implements a complete ETL (Extract, Transform, Load) workflow for a
     - URL: `http://localhost:8080`
     - Login: `admin` / `admin`
 
-5.  **Trigger the DAG:**
+5.  **Access the ingestion UI:**
+    - URL: `http://localhost:30030` (frontend; API paths are proxied to the backend)
+
+6.  **Trigger the DAG:**
     Locate the `commerce_etl` DAG and trigger it manually.
 
 ---
 
 ## 📊 Monitoring and Logs
 
-- **Task Logs:** Accessible via the Airflow UI or locally in the `./logs` folder.
+- **Task Logs:** Accessible via the Airflow UI or `docker compose logs airflow-webserver` (filesystem logs live in the Compose named volume `airflow_logs`, not `./logs`).
 - **Data Quality Logs:** Check `./data/logs/` for CSV files containing specific rows that failed validation or contained null values.
 
 ---

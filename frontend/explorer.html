@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data explorer — Pipeline Commerce</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="max-w-6xl mx-auto py-10 px-4" x-data="explorerApp()" x-init="init()">
+        <header class="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">Data explorer</h1>
+                <p class="text-gray-600">Look up orders, customers, and how they connect in the warehouse database.</p>
+            </div>
+            <nav class="flex flex-wrap gap-3 text-sm">
+                <a href="index.html" class="text-blue-600 hover:text-blue-800 font-medium">Ingestion</a>
+                <a href="data.html" class="text-blue-600 hover:text-blue-800 font-medium">Staged records</a>
+                <a href="browse.html" class="text-blue-600 hover:text-blue-800 font-medium">Table browser</a>
+            </nav>
+        </header>
+
+        <section x-show="!authenticated" x-cloak class="bg-white rounded-lg shadow-md p-8 max-w-md mx-auto">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4">Sign in</h2>
+            <p class="text-sm text-gray-600 mb-6">Same dashboard credentials as the staged-records page.</p>
+            <form @submit.prevent="login" class="space-y-4">
+                <div>
+                    <label for="user" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                    <input id="user" type="text" autocomplete="username" x-model="username"
+                        class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="pass" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input id="pass" type="password" autocomplete="current-password" x-model="password"
+                        class="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <p x-show="loginError" x-text="loginError" class="text-sm text-red-600"></p>
+                <button type="submit" :disabled="loading"
+                    class="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 font-medium">
+                    <span x-show="!loading">Continue</span>
+                    <span x-show="loading">Checking…</span>
+                </button>
+            </form>
+        </section>
+
+        <div x-show="authenticated" x-cloak class="space-y-8">
+            <div class="flex flex-wrap items-center justify-between gap-3 bg-white rounded-lg shadow px-4 py-3">
+                <p class="text-sm text-gray-600">
+                    Signed in as <span class="font-medium text-gray-800" x-text="username"></span>
+                </p>
+                <button type="button" @click="logout"
+                    class="text-sm px-3 py-1.5 rounded border border-red-200 text-red-700 hover:bg-red-50">
+                    Sign out
+                </button>
+            </div>
+
+            <!-- Order → customer -->
+            <section id="order-explorer-panel" class="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-800 mb-2">Order and customer</h2>
+                <p class="text-sm text-gray-600 mb-4">Each order has a <code class="text-xs bg-gray-100 px-1 rounded">cliente_id</code> that points to <code class="text-xs bg-gray-100 px-1 rounded">clientes</code>. Search by internal id or by order code.</p>
+                <form @submit.prevent="lookupOrder" class="flex flex-col sm:flex-row gap-3 sm:items-end mb-4">
+                    <div class="flex-1">
+                        <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Pedido ID</label>
+                        <input type="number" min="1" x-model="orderPedidoId" placeholder="e.g. 12"
+                            class="w-full border border-gray-300 rounded-md p-2 text-sm">
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Pedido código</label>
+                        <input type="text" x-model="orderPedidoCodigo" placeholder="e.g. PED-0001"
+                            class="w-full border border-gray-300 rounded-md p-2 text-sm">
+                    </div>
+                    <button type="submit" :disabled="orderLoading"
+                        class="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm font-medium whitespace-nowrap">
+                        Look up
+                    </button>
+                </form>
+                <p x-show="orderFormError" x-text="orderFormError" class="text-sm text-red-600 mb-3"></p>
+                <p x-show="orderApiError" x-text="orderApiError" class="text-sm text-red-600 mb-3"></p>
+
+                <template x-if="orderResult">
+                    <div class="space-y-4">
+                        <div class="flex flex-wrap items-center gap-2" x-show="orderResult.relationship">
+                            <template x-if="orderResult.relationship.related">
+                                <span class="inline-flex items-center rounded-full bg-green-100 text-green-800 text-xs font-medium px-3 py-1">This order is linked to the customer row below (cliente_id matches).</span>
+                            </template>
+                            <template x-if="!orderResult.relationship.related">
+                                <span class="inline-flex items-center rounded-full bg-amber-100 text-amber-900 text-xs font-medium px-3 py-1">Check relationship: pedido references cliente_id <span x-text="orderResult.relationship['pedido.cliente_id']"></span>
+                                    <template x-if="orderResult.relationship['matches_cliente.cliente_id'] != null">; loaded customer id <span x-text="orderResult.relationship['matches_cliente.cliente_id']"></span></template>
+                                    <template x-if="orderResult.relationship['matches_cliente.cliente_id'] == null">; no matching customer row was found.</template>
+                                </span>
+                            </template>
+                        </div>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <h3 class="text-sm font-semibold text-gray-700 mb-2">Pedido</h3>
+                                <dl class="text-sm space-y-1" x-html="dlFromObj(orderResult.pedido)"></dl>
+                            </div>
+                            <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <h3 class="text-sm font-semibold text-gray-700 mb-2">Cliente</h3>
+                                <template x-if="orderResult.cliente">
+                                    <dl class="text-sm space-y-1" x-html="dlFromObj(orderResult.cliente)"></dl>
+                                </template>
+                                <p x-show="!orderResult.cliente" class="text-sm text-amber-800">No customer row for this pedido’s cliente_id.</p>
+                            </div>
+                            <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <h3 class="text-sm font-semibold text-gray-700 mb-2">Loja</h3>
+                                <template x-if="orderResult.loja">
+                                    <dl class="text-sm space-y-1" x-html="dlFromObj(orderResult.loja)"></dl>
+                                </template>
+                                <p x-show="!orderResult.loja" class="text-sm text-gray-500">—</p>
+                            </div>
+                            <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <h3 class="text-sm font-semibold text-gray-700 mb-2">Vendedor</h3>
+                                <template x-if="orderResult.vendedor">
+                                    <dl class="text-sm space-y-1" x-html="dlFromObj(orderResult.vendedor)"></dl>
+                                </template>
+                                <p x-show="!orderResult.vendedor" class="text-sm text-gray-500">—</p>
+                            </div>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-semibold text-gray-700 mb-2">Itens do pedido</h3>
+                            <div class="overflow-x-auto border border-gray-200 rounded-lg">
+                                <table class="min-w-full text-sm">
+                                    <thead class="bg-gray-100 text-left text-gray-600 text-xs uppercase">
+                                        <tr>
+                                            <th class="px-3 py-2">#</th>
+                                            <th class="px-3 py-2">Produto</th>
+                                            <th class="px-3 py-2">Qtd</th>
+                                            <th class="px-3 py-2">Preço unit.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-if="!orderResult.itens_pedido || orderResult.itens_pedido.length === 0">
+                                            <tr><td colspan="4" class="px-3 py-4 text-center text-gray-500">No line items.</td></tr>
+                                        </template>
+                                        <template x-for="it in (orderResult.itens_pedido || [])" :key="it.item_pedido_id">
+                                            <tr class="border-t border-gray-100">
+                                                <td class="px-3 py-2" x-text="it.sequencia_item"></td>
+                                                <td class="px-3 py-2">
+                                                    <span class="font-medium" x-text="it.nome_produto"></span>
+                                                    <span class="text-gray-500 text-xs">(id <span x-text="it.produto_id"></span>)</span>
+                                                </td>
+                                                <td class="px-3 py-2" x-text="it.quantidade"></td>
+                                                <td class="px-3 py-2" x-text="it.preco_unitario"></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <h3 class="text-sm font-semibold text-gray-700 mb-2">Pagamentos</h3>
+                                <div class="overflow-x-auto border border-gray-200 rounded-lg max-h-56 overflow-y-auto">
+                                    <table class="min-w-full text-xs">
+                                        <thead class="bg-gray-100 text-gray-600 sticky top-0">
+                                            <tr><th class="px-2 py-1 text-left">ID</th><th class="px-2 py-1 text-left">Método</th><th class="px-2 py-1 text-left">Valor</th><th class="px-2 py-1 text-left">Data</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="pg in (orderResult.pagamentos || [])" :key="pg.pagamento_id">
+                                                <tr class="border-t border-gray-100">
+                                                    <td class="px-2 py-1" x-text="pg.pagamento_id"></td>
+                                                    <td class="px-2 py-1" x-text="pg.metodo_pagamento"></td>
+                                                    <td class="px-2 py-1" x-text="pg.valor_pagamento"></td>
+                                                    <td class="px-2 py-1 whitespace-nowrap" x-text="pg.data_pagamento"></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-semibold text-gray-700 mb-2">Entregas</h3>
+                                <div class="overflow-x-auto border border-gray-200 rounded-lg max-h-56 overflow-y-auto">
+                                    <table class="min-w-full text-xs">
+                                        <thead class="bg-gray-100 text-gray-600 sticky top-0">
+                                            <tr><th class="px-2 py-1 text-left">ID</th><th class="px-2 py-1 text-left">Status</th><th class="px-2 py-1 text-left">Postagem</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="en in (orderResult.entregas || [])" :key="en.entrega_id">
+                                                <tr class="border-t border-gray-100">
+                                                    <td class="px-2 py-1" x-text="en.entrega_id"></td>
+                                                    <td class="px-2 py-1" x-text="en.status_entrega"></td>
+                                                    <td class="px-2 py-1 whitespace-nowrap" x-text="en.data_postagem"></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </section>
+
+            <!-- Customer → orders -->
+            <section class="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-800 mb-2">Orders for a customer</h2>
+                <p class="text-sm text-gray-600 mb-4">List recent orders for a given <code class="text-xs bg-gray-100 px-1 rounded">cliente_id</code>.</p>
+                <form @submit.prevent="lookupClientePedidos" class="flex flex-col sm:flex-row gap-3 sm:items-end mb-4">
+                    <div class="flex-1 max-w-xs">
+                        <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Cliente ID</label>
+                        <input type="number" min="1" x-model="listaClienteId" placeholder="e.g. 3"
+                            class="w-full border border-gray-300 rounded-md p-2 text-sm">
+                    </div>
+                    <button type="submit" :disabled="listaLoading"
+                        class="bg-slate-700 text-white px-5 py-2 rounded-md hover:bg-slate-800 disabled:opacity-50 text-sm font-medium">
+                        List orders
+                    </button>
+                </form>
+                <p x-show="listaApiError" x-text="listaApiError" class="text-sm text-red-600 mb-3"></p>
+
+                <template x-if="listaResult">
+                    <div class="space-y-3">
+                        <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                            <h3 class="text-sm font-semibold text-gray-700 mb-2">Cliente</h3>
+                            <dl class="text-sm space-y-1" x-html="dlFromObj(listaResult.cliente)"></dl>
+                        </div>
+                        <p class="text-sm text-gray-600">Showing <span x-text="listaResult.count"></span> order(s).</p>
+                        <div class="overflow-x-auto border border-gray-200 rounded-lg">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-gray-100 text-left text-gray-600 text-xs uppercase">
+                                    <tr>
+                                        <th class="px-3 py-2">pedido_id</th>
+                                        <th class="px-3 py-2">pedido_codigo</th>
+                                        <th class="px-3 py-2">data_pedido</th>
+                                        <th class="px-3 py-2">status</th>
+                                        <th class="px-3 py-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="p in (listaResult.pedidos || [])" :key="p.pedido_id">
+                                        <tr class="border-t border-gray-100">
+                                            <td class="px-3 py-2 font-mono text-xs" x-text="p.pedido_id"></td>
+                                            <td class="px-3 py-2" x-text="p.pedido_codigo"></td>
+                                            <td class="px-3 py-2 text-gray-600" x-text="p.data_pedido"></td>
+                                            <td class="px-3 py-2" x-text="p.status_pedido"></td>
+                                            <td class="px-3 py-2">
+                                                <button type="button" class="text-blue-600 hover:underline text-xs" @click="openOrderById(p.pedido_id)">Open order</button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </template>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        function basicAuthHeader(user, pass) {
+            const raw = user + ':' + pass;
+            const bytes = new TextEncoder().encode(raw);
+            let bin = '';
+            bytes.forEach(b => { bin += String.fromCharCode(b); });
+            return 'Basic ' + btoa(bin);
+        }
+
+        function escapeHtml(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function explorerApp() {
+            return {
+                username: '',
+                password: '',
+                authHeader: '',
+                authenticated: false,
+                loading: false,
+                loginError: '',
+                orderPedidoId: '',
+                orderPedidoCodigo: '',
+                orderLoading: false,
+                orderFormError: '',
+                orderApiError: '',
+                orderResult: null,
+                listaClienteId: '',
+                listaLoading: false,
+                listaApiError: '',
+                listaResult: null,
+                init() {
+                    try {
+                        const raw = sessionStorage.getItem('dashboard_basic');
+                        if (raw) {
+                            this.authHeader = raw;
+                            this.authenticated = true;
+                            this.username = sessionStorage.getItem('dashboard_user') || '';
+                        }
+                    } catch (_) {}
+                },
+                dlFromObj(obj) {
+                    if (!obj) return '';
+                    return Object.keys(obj).map(k =>
+                        '<div class="flex gap-2"><dt class="text-gray-500 shrink-0">' + escapeHtml(k) + '</dt><dd class="text-gray-900 break-all">' + escapeHtml(obj[k] == null ? '—' : String(obj[k])) + '</dd></div>'
+                    ).join('');
+                },
+                async apiGet(path) {
+                    const res = await fetch(path, { headers: { 'Authorization': this.authHeader } });
+                    if (res.status === 401) {
+                        this.logout();
+                        this.loginError = 'Session expired. Please sign in again.';
+                        throw new Error('401');
+                    }
+                    return res;
+                },
+                async login() {
+                    this.loginError = '';
+                    this.loading = true;
+                    const hdr = basicAuthHeader(this.username, this.password);
+                    try {
+                        const res = await fetch('/api/records?limit=1', { headers: { 'Authorization': hdr } });
+                        if (res.status === 401) {
+                            this.loginError = 'Invalid username or password.';
+                            return;
+                        }
+                        if (res.status === 503) {
+                            const j = await res.json().catch(() => ({}));
+                            this.loginError = j.detail || 'Dashboard is not configured.';
+                            return;
+                        }
+                        if (!res.ok) {
+                            const j = await res.json().catch(() => ({}));
+                            this.loginError = j.detail || 'Sign-in check failed.';
+                            return;
+                        }
+                        this.authHeader = hdr;
+                        this.authenticated = true;
+                        this.password = '';
+                        try {
+                            sessionStorage.setItem('dashboard_basic', hdr);
+                            sessionStorage.setItem('dashboard_user', this.username);
+                        } catch (_) {}
+                    } catch (e) {
+                        if (e.message !== '401') this.loginError = 'Network error.';
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                logout() {
+                    this.authenticated = false;
+                    this.authHeader = '';
+                    this.orderResult = null;
+                    this.listaResult = null;
+                    try {
+                        sessionStorage.removeItem('dashboard_basic');
+                        sessionStorage.removeItem('dashboard_user');
+                    } catch (_) {}
+                },
+                async lookupOrder() {
+                    this.orderFormError = '';
+                    this.orderApiError = '';
+                    this.orderResult = null;
+                    const idStr = String(this.orderPedidoId || '').trim();
+                    const cod = String(this.orderPedidoCodigo || '').trim();
+                    if (idStr && cod) {
+                        this.orderFormError = 'Fill only one field: Pedido ID or Pedido código.';
+                        return;
+                    }
+                    if (!idStr && !cod) {
+                        this.orderFormError = 'Enter a Pedido ID or a Pedido código.';
+                        return;
+                    }
+                    if (!this.authHeader) return;
+                    let path = '/api/explorer/order?';
+                    if (idStr) path += 'pedido_id=' + encodeURIComponent(idStr);
+                    else path += 'pedido_codigo=' + encodeURIComponent(cod);
+                    this.orderLoading = true;
+                    try {
+                        const res = await this.apiGet(path);
+                        if (res.status === 404) {
+                            this.orderApiError = 'Order not found.';
+                            return;
+                        }
+                        if (res.status === 400) {
+                            const j = await res.json().catch(() => ({}));
+                            this.orderApiError = j.detail || 'Invalid request.';
+                            return;
+                        }
+                        if (!res.ok) {
+                            const j = await res.json().catch(() => ({}));
+                            this.orderApiError = j.detail || 'Request failed.';
+                            return;
+                        }
+                        this.orderResult = await res.json();
+                    } catch (e) {
+                        if (e.message !== '401') this.orderApiError = 'Network error.';
+                    } finally {
+                        this.orderLoading = false;
+                    }
+                },
+                async lookupClientePedidos() {
+                    this.listaApiError = '';
+                    this.listaResult = null;
+                    const cid = String(this.listaClienteId || '').trim();
+                    if (!cid) {
+                        this.listaApiError = 'Enter a cliente id.';
+                        return;
+                    }
+                    if (!this.authHeader) return;
+                    this.listaLoading = true;
+                    try {
+                        const res = await this.apiGet('/api/explorer/pedidos-por-cliente?cliente_id=' + encodeURIComponent(cid) + '&limit=100');
+                        if (res.status === 404) {
+                            const j = await res.json().catch(() => ({}));
+                            this.listaApiError = j.detail || 'Not found.';
+                            return;
+                        }
+                        if (!res.ok) {
+                            const j = await res.json().catch(() => ({}));
+                            this.listaApiError = j.detail || 'Request failed.';
+                            return;
+                        }
+                        this.listaResult = await res.json();
+                    } catch (e) {
+                        if (e.message !== '401') this.listaApiError = 'Network error.';
+                    } finally {
+                        this.listaLoading = false;
+                    }
+                },
+                async openOrderById(pedidoId) {
+                    this.orderPedidoId = String(pedidoId);
+                    this.orderPedidoCodigo = '';
+                    await this.lookupOrder();
+                    document.getElementById('order-explorer-panel')?.scrollIntoView?.({ behavior: 'smooth' });
+                }
+            };
+        }
+    </script>
+</body>
+</html>

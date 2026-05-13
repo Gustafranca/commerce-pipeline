@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Override tags after CI build (see scripts/set-image-tags.sh and GitHub Actions).
+images:
+  - name: gfalmeida2/pipeline-commerce-backend
+    newTag: latest
+  - name: gfalmeida2/pipeline-commerce-frontend
+    newTag: latest
