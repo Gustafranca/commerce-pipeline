@@ -1,3 +1,33 @@
 ---
 alwaysApply: true
+description: Pipeline Commerce — backend, ETL, static frontends, and ops conventions
 ---
+
+# Pipeline Commerce — agent rules
+
+## Stack
+
+- **Backend**: FastAPI + SQLAlchemy + Uvicorn (`backend/main.py`). Shared Pydantic models live in `etl/etl/commerce_models.py` and are **copied into the backend image** as `commerce_models.py` (`backend/Dockerfile`). Staging promote logic is `backend/staged_promote.py` (same image).
+- **Frontends**: Static HTML + Alpine + Tailwind CDN (`frontend/*.html`). **Nginx** (`frontend/nginx.conf`) proxies `/api/`, `/ingest/`, `/health`, and OpenAPI paths to the backend service in Docker Compose.
+- **ETL**: Airflow DAGs under `etl/dags/`; warehouse DDL under `etl/sql/` (Postgres init mounts `./etl/sql`).
+
+## Security and data integrity
+
+- Dashboard routes use **`verify_dashboard_user`** (env `DASHBOARD_USER` / `DASHBOARD_PASSWORD`). Destructive UI flows should **re-send Basic auth with a freshly typed password** on that request, not only the cached `sessionStorage` header.
+- **Never** build SQL table or column names from unchecked user strings. Use fixed whitelists only (e.g. `BROWSE_TABLES`, `MODEL_BY_DATASET`, `TABLE_PRIMARY_KEY` in `staged_promote.py`).
+- **`clientes.tipo_cliente`** is **`VARCHAR(2)`** in the schema. Allowed values are **`PF`** and **`PJ`** only; validation and user-facing errors must say so (`staged_promote.py` + ingest for `clientes`).
+
+## API and promote behavior
+
+- Staged rows: `staging.common_records`. **PATCH** updates payload (and optional `entity_name`); **POST** `.../promote` validates, inserts warehouse row, deletes staging row. **DELETE** removes a staging row only.
+- **Browse DELETE** removes one warehouse row by primary key; **409** on FK violations is expected.
+- BR-style **date strings** in JSON (`dd/mm/yyyy`, etc.) are normalized in `normalize_staged_payload` before Pydantic.
+
+## What not to commit
+
+- Do **not** commit `.env`, local **`logs/`** churn, or **`__pycache__/`**. Prefer updating `.gitignore` if new artifact types appear.
+
+## Edits and docs
+
+- Keep diffs **scoped** to the task; avoid drive-by refactors and unrelated markdown unless the user asks.
+- Prefer **complete sentences** in commit messages and short, accurate summaries of behavior changes.
