@@ -1,11 +1,26 @@
 import os
 import psycopg2
+from psycopg2 import sql
 from typing import List
 from airflow.decorators import task
 from etl.etl.config import (
     PG_DBNAME, PG_USER, PG_PASSWORD, PG_HOST, PG_PORT,
     SQL_INIT_DB, SQL_STAGING_TABLES, SQL_CONSTRAINTS
 )
+
+DATASET_PRIMARY_KEY = {
+    "categorias_produto": "categoria_id",
+    "clientes": "cliente_id",
+    "lojas": "loja_id",
+    "produtos": "produto_id",
+    "vendedores": "vendedor_id",
+    "pedidos": "pedido_id",
+    "entregas": "entrega_id",
+    "itens_pedido": "item_pedido_id",
+    "estoque_movimentacoes": "movimento_id",
+    "pagamentos": "pagamento_id",
+}
+
 
 @task
 def list_datasets() -> List[str]:
@@ -37,14 +52,66 @@ def create_tables():
         
 @task
 def load(dataset: str, cleaned_path: str):
+    if dataset not in DATASET_PRIMARY_KEY:
+        raise ValueError(f"Unsupported dataset for load: {dataset}")
     conn = psycopg2.connect(dbname=PG_DBNAME, user=PG_USER, password=PG_PASSWORD, host=PG_HOST, port=PG_PORT)
     try:
         with conn:
             with conn.cursor() as cur:
-                # Limpa a tabela antes de carregar para evitar erros de chave duplicada
-                cur.execute(f"TRUNCATE TABLE {dataset} CASCADE;")
+                pk_column = DATASET_PRIMARY_KEY[dataset]
+                cur.execute(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = %s
+                    ORDER BY ordinal_position
+                    """,
+                    (dataset,),
+                )
+                columns = [row[0] for row in cur.fetchall()]
+                if not columns:
+                    raise ValueError(f"No columns found for dataset: {dataset}")
+
+                temp_table = f"{dataset}_load_tmp"
+                cur.execute(
+                    sql.SQL("CREATE TEMP TABLE {} (LIKE {} INCLUDING DEFAULTS) ON COMMIT DROP").format(
+                        sql.Identifier(temp_table),
+                        sql.Identifier(dataset),
+                    )
+                )
                 with open(cleaned_path, "r", encoding="utf-8") as f:
-                    cur.copy_expert(f"COPY {dataset} FROM STDIN WITH CSV HEADER DELIMITER ';'", f)
+                    cur.copy_expert(f"COPY {temp_table} FROM STDIN WITH CSV HEADER DELIMITER ';'", f)
+
+                quoted_columns = sql.SQL(", ").join(sql.Identifier(col) for col in columns)
+                update_columns = [col for col in columns if col != pk_column]
+                if update_columns:
+                    set_clause = sql.SQL(", ").join(
+                        sql.SQL("{} = EXCLUDED.{}").format(sql.Identifier(col), sql.Identifier(col))
+                        for col in update_columns
+                    )
+                    upsert = sql.SQL(
+                        "INSERT INTO {dataset} ({columns}) "
+                        "SELECT {columns} FROM {temp_table} "
+                        "ON CONFLICT ({pk}) DO UPDATE SET {set_clause}"
+                    ).format(
+                        dataset=sql.Identifier(dataset),
+                        columns=quoted_columns,
+                        temp_table=sql.Identifier(temp_table),
+                        pk=sql.Identifier(pk_column),
+                        set_clause=set_clause,
+                    )
+                else:
+                    upsert = sql.SQL(
+                        "INSERT INTO {dataset} ({columns}) "
+                        "SELECT {columns} FROM {temp_table} "
+                        "ON CONFLICT ({pk}) DO NOTHING"
+                    ).format(
+                        dataset=sql.Identifier(dataset),
+                        columns=quoted_columns,
+                        temp_table=sql.Identifier(temp_table),
+                        pk=sql.Identifier(pk_column),
+                    )
+                cur.execute(upsert)
     finally:
         conn.close()
 
@@ -58,12 +125,15 @@ def add_constraints():
                     commands = f.read().split(';')
                     for cmd in commands:
                         if not cmd.strip(): continue
+                        cur.execute("SAVEPOINT constraint_apply")
                         try:
                             cur.execute(cmd)
                         except psycopg2.errors.DuplicateObject:
-                            conn.rollback() # Ignora se o constraint ja existe
+                            cur.execute("ROLLBACK TO SAVEPOINT constraint_apply")
                         except Exception as e:
-                            print(f"Erro ao aplicar constraint: {e}")
-                            conn.rollback()
+                            cur.execute("ROLLBACK TO SAVEPOINT constraint_apply")
+                            raise RuntimeError(f"Error applying constraint command: {e}") from e
+                        finally:
+                            cur.execute("RELEASE SAVEPOINT constraint_apply")
     finally:
         conn.close()

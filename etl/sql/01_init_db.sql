@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS clientes (
     uf VARCHAR(2) NOT NULL,
     data_cadastro DATE,
     data_nascimento DATE,
-    status_cliente VARCHAR(20) NOT NULL
+    status_cliente VARCHAR(20) NOT NULL,
+    CONSTRAINT ck_clientes_tipo_cliente_pf_pj CHECK (tipo_cliente IN ('PF', 'PJ'))
 );
 
 CREATE TABLE IF NOT EXISTS lojas (

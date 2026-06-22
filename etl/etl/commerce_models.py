@@ -72,7 +72,7 @@ class Entrega(BaseModel):
     entrega_id: Optional[int] = None
     pedido_id: int
     transportadora: str
-    data_postagem: Optional[date] = None
+    data_postagem: datetime
     data_prevista: Optional[date] = None
     data_entrega_real: Optional[date] = None
     status_entrega: str

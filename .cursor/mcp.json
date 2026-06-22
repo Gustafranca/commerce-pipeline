@@ -1,0 +1,13 @@
+
+{
+"mcpServers": {
+      "grafana": {
+        "command": "/home/linuxbrew/.linuxbrew/bin/mcp-grafana",
+        "args": [],
+        "env": {
+          "GRAFANA_URL": "http://localhost:3000",
+          "GRAFANA_SERVICE_ACCOUNT_TOKEN": ""
+        }
+      }
+    }
+  }

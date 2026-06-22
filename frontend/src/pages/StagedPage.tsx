@@ -42,10 +42,28 @@ export function StagedPage() {
   const [editError, setEditError] = useState("");
 
   const [pwdOpen, setPwdOpen] = useState(false);
-  const [pwdMode, setPwdMode] = useState<"delete" | null>(null);
+  const [pwdMode, setPwdMode] = useState<"delete" | "promote" | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
 
   const [actionMsg, setActionMsg] = useState("");
+
+  useEffect(() => {
+    // #region agent log
+    fetch("http://127.0.0.1:7839/ingest/5ada368a-8262-4459-a6ab-c6b784002963", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "42128d" },
+      body: JSON.stringify({
+        sessionId: "42128d",
+        runId: "pre-fix",
+        hypothesisId: "H1",
+        location: "StagedPage.tsx:50",
+        message: "Password dialog state changed",
+        data: { pwdOpen, pwdMode, selectedCount: selected.size },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+  }, [pwdOpen, pwdMode, selected]);
 
   const load = useCallback(async () => {
     if (!authorization) {
@@ -120,17 +138,83 @@ export function StagedPage() {
     setPwdOpen(true);
   }
 
-  async function promoteSelected() {
+  function requestPromote() {
+    // #region agent log
+    fetch("http://127.0.0.1:7839/ingest/5ada368a-8262-4459-a6ab-c6b784002963", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "42128d" },
+      body: JSON.stringify({
+        sessionId: "42128d",
+        runId: "pre-fix",
+        hypothesisId: "H2",
+        location: "StagedPage.tsx:141",
+        message: "Promote requested",
+        data: { hasAuthorization: Boolean(authorization), selectedCount: selected.size },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (!authorization || selected.size === 0) return;
+    setPwdMode("promote");
+    setPwdOpen(true);
+  }
+
+  async function promoteSelected(oneOffAuthorization: string) {
+    // #region agent log
+    fetch("http://127.0.0.1:7839/ingest/5ada368a-8262-4459-a6ab-c6b784002963", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "42128d" },
+      body: JSON.stringify({
+        sessionId: "42128d",
+        runId: "pre-fix",
+        hypothesisId: "H3",
+        location: "StagedPage.tsx:160",
+        message: "promoteSelected entered",
+        data: { selectedCount: selected.size, hasOneOffAuthorization: Boolean(oneOffAuthorization) },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    if (selected.size === 0) return;
     setActionMsg("");
     const ids = [...selected];
     const results: string[] = [];
     for (const id of ids) {
       try {
-        await promoteStagedRecord(authorization, id);
+        await promoteStagedRecord(oneOffAuthorization, id);
+        // #region agent log
+        fetch("http://127.0.0.1:7839/ingest/5ada368a-8262-4459-a6ab-c6b784002963", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "42128d" },
+          body: JSON.stringify({
+            sessionId: "42128d",
+            runId: "pre-fix",
+            hypothesisId: "H4",
+            location: "StagedPage.tsx:176",
+            message: "promote API success",
+            data: { recordId: id },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         results.push(`#${id}: promoted`);
       } catch (err: unknown) {
         const body = err && typeof err === "object" && "body" in err ? (err as { body: unknown }).body : null;
+        // #region agent log
+        fetch("http://127.0.0.1:7839/ingest/5ada368a-8262-4459-a6ab-c6b784002963", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "42128d" },
+          body: JSON.stringify({
+            sessionId: "42128d",
+            runId: "pre-fix",
+            hypothesisId: "H4",
+            location: "StagedPage.tsx:194",
+            message: "promote API failed",
+            data: { recordId: id, hasBody: Boolean(body) },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         results.push(`#${id}: ${formatApiErrorBody(body)}`);
       }
     }
@@ -190,7 +274,7 @@ export function StagedPage() {
           type="button"
           disabled={selected.size === 0}
           className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
-          onClick={() => void promoteSelected()}
+          onClick={requestPromote}
         >
           Promote selected ({selected.size})
         </button>
@@ -312,11 +396,30 @@ export function StagedPage() {
             setDeleteTargetId(null);
           }
         }}
-        title="Confirm delete"
-        confirmLabel="Delete"
+        title={pwdMode === "promote" ? "Confirm promote selected" : "Confirm delete"}
+        confirmLabel={pwdMode === "promote" ? "Promote" : "Delete"}
         onConfirm={async (password) => {
-          if (deleteTargetId == null) return;
+          // #region agent log
+          fetch("http://127.0.0.1:7839/ingest/5ada368a-8262-4459-a6ab-c6b784002963", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "42128d" },
+            body: JSON.stringify({
+              sessionId: "42128d",
+              runId: "pre-fix",
+              hypothesisId: "H3",
+              location: "StagedPage.tsx:389",
+              message: "Password dialog confirmed",
+              data: { pwdMode, hasPassword: Boolean(password.trim()), deleteTargetId },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
           const auth = oneOffAuth(password);
+          if (pwdMode === "promote") {
+            await promoteSelected(auth);
+            return;
+          }
+          if (deleteTargetId == null) return;
           await deleteStagedRecord(auth, deleteTargetId);
           setActionMsg(`Deleted staged record #${deleteTargetId}.`);
           await load();

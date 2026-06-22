@@ -127,6 +127,44 @@ def _parse_to_date(v: Any) -> Any:
     return v
 
 
+def _parse_to_datetime(v: Any) -> Any:
+    """Coerce BR/common datetime strings to datetime.datetime."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, date):
+        return datetime.combine(v, datetime.min.time())
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        normalized = s.replace("/", "-")
+        dt_formats = (
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%d-%m-%Y %H:%M:%S",
+            "%d-%m-%Y %H:%M",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M",
+        )
+        for fmt in dt_formats:
+            try:
+                parsed = datetime.strptime(normalized, fmt)
+                if "%H:%M" in fmt and "%S" not in fmt:
+                    return parsed.replace(second=0)
+                return parsed
+            except ValueError:
+                continue
+        date_formats = ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%Y/%m/%d", "%d.%m.%Y")
+        for fmt in date_formats:
+            try:
+                return datetime.strptime(s, fmt)
+            except ValueError:
+                continue
+    return v
+
+
 def normalize_staged_payload(dataset: str, data: Dict[str, Any]) -> Dict[str, Any]:
     """Mirror key cleaning from ETL transforme.py for JSON/form payloads."""
     d: Dict[str, Any] = {}
@@ -196,7 +234,9 @@ def normalize_staged_payload(dataset: str, data: Dict[str, Any]) -> Dict[str, An
         for f in ("pedido_id", "entrega_id"):
             if d.get(f) is not None:
                 d[f] = _int_val(d[f])
-        for f in ("data_postagem", "data_prevista", "data_entrega_real"):
+        if d.get("data_postagem") is not None:
+            d["data_postagem"] = _parse_to_datetime(d["data_postagem"])
+        for f in ("data_prevista", "data_entrega_real"):
             if d.get(f) is not None:
                 d[f] = _parse_to_date(d[f])
     elif dataset == "produtos":

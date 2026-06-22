@@ -12,16 +12,16 @@ services:
     image: postgres:16
     container_name: etl_postgres
     environment:
-      POSTGRES_USER: etl_user
-      POSTGRES_PASSWORD: etl_password
-      POSTGRES_DB: etl_warehouse
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./etl/sql:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U etl_user -d etl_warehouse"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -103,9 +103,10 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://etl_user:etl_password@postgres:5432/etl_warehouse
-      DASHBOARD_USER: db_access
-      DASHBOARD_PASSWORD: db_password
+      DATABASE_URL: ${DATABASE_URL}
+      DASHBOARD_USER: ${DASHBOARD_USER}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:30030,http://127.0.0.1:30030}
 
   frontend:
     build:

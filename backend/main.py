@@ -2,6 +2,7 @@ import os
 import json
 import hmac
 import hashlib
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import uuid4
@@ -24,13 +25,27 @@ from staged_promote import (
 )
 
 app = FastAPI(title="Commerce Data Ingestion API")
+logger = logging.getLogger(__name__)
 
-# Enable CORS for frontend development
+
+def _cors_origins_from_env() -> List[str]:
+    raw = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    if origins:
+        return origins
+    return ["http://localhost:30030", "http://127.0.0.1:30030"]
+
+
+def _internal_error(exc: Exception) -> HTTPException:
+    logger.exception("Unhandled application error: %s", exc)
+    return HTTPException(status_code=500, detail="Internal server error.")
+
+# Restrict CORS to trusted frontend origins.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins_from_env(),
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://etl_user:etl_password@localhost:5432/etl_warehouse")
@@ -129,7 +144,7 @@ def browse_table(
         with engine.connect() as conn:
             rows = conn.execute(stmt, {"lim": lim, "off": off}).mappings().all()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _internal_error(e)
     return {
         "entity": key,
         "rows": [_mapping_to_dict(r) for r in rows],
@@ -162,7 +177,7 @@ def browse_delete_row(
             detail="Cannot delete: other rows still reference this record. " + str(e.orig),
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _internal_error(e)
     if not row:
         raise HTTPException(status_code=404, detail="Row not found.")
     return {"status": "deleted", "entity": key, "id": row[pk_col], "primary_key": pk_col}
@@ -192,7 +207,7 @@ def explorer_order(
                     {"cod": pedido_codigo.strip()},
                 ).mappings().first()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _internal_error(e)
 
     if not ped:
         raise HTTPException(status_code=404, detail="Order not found.")
@@ -238,7 +253,7 @@ def explorer_order(
                 {"pid": pid},
             ).mappings().all()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _internal_error(e)
 
     return {
         "pedido": _mapping_to_dict(ped),
@@ -286,7 +301,7 @@ def explorer_pedidos_por_cliente(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _internal_error(e)
 
     return {
         "cliente": _mapping_to_dict(cliente),
@@ -336,7 +351,7 @@ def list_staged_records(
                 {"lim": cap},
             ).mappings().all()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _internal_error(e)
 
     return [_staged_record_row_to_dict(r) for r in rows]
 
@@ -385,7 +400,7 @@ def patch_staged_record(
                     {"payload": payload_json, "id": record_id},
                 ).mappings().first()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _internal_error(e)
 
     if not row:
         raise HTTPException(status_code=404, detail="Staged record not found.")
@@ -406,7 +421,7 @@ def delete_staged_record(
                 {"id": record_id},
             ).mappings().first()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _internal_error(e)
     if not row:
         raise HTTPException(status_code=404, detail="Staged record not found.")
     return {"status": "deleted", "id": row["id"]}
@@ -434,7 +449,11 @@ def promote_staged_record_endpoint(
 
 
 @app.post("/ingest/{entity_name}")
-async def ingest_data(entity_name: str, payload: Dict[str, Any]):
+def ingest_data(
+    entity_name: str,
+    payload: Dict[str, Any],
+    _username: str = Depends(verify_dashboard_user),
+):
     run_id = f"manual_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:6]}"
     key = entity_name.strip()
     _, errs = validate_payload(key, payload)
@@ -461,7 +480,7 @@ async def ingest_data(entity_name: str, payload: Dict[str, Any]):
 
         return {"status": "success", "run_id": run_id, "entity": key}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _internal_error(e)
 
 @app.get("/health")
 def health_check():

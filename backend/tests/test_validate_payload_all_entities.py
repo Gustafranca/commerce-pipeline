@@ -57,6 +57,7 @@ _VALID_BY_DATASET: dict[str, dict] = {
     "entregas": {
         "pedido_id": "1",
         "transportadora": "Correios",
+        "data_postagem": "2024-01-15 10:00:00",
         "status_entrega": "postado",
         "modalidade_frete": "PAC",
     },
